@@ -8,7 +8,7 @@
 #include "kmeans_labels.h"
 
 #if __CUDA_ARCH__ < 600
-inline __device__ double my_atomic_add(double *address, double val) {
+inline __device__ void my_atomic_add(double *address, double val) {
   unsigned long long int *address_as_ull =
       (unsigned long long int *) address;
   unsigned long long int old = *address_as_ull, assumed;
@@ -18,39 +18,33 @@ inline __device__ double my_atomic_add(double *address, double val) {
                     __double_as_longlong(val +
                         __longlong_as_double(assumed)));
   } while (assumed != old);
-  return __longlong_as_double(old);
 }
 #else
-inline __device__ double my_atomic_add(double *address, double val) {
-  return (atomicAdd(address, val));
+inline __device__ void my_atomic_add(double *address, double val) {
+  atomicAdd(address, val);
 }
 #endif
 
-union float2UllUnion {
-  float2 f;
-  unsigned long long int ull;
-};
-
-inline __device__ float my_atomic_add(float *address, float val) {
-  return (atomicAdd(address, val));
-}
-
-inline __device__ void my_atomic_add(float2UllUnion *address, float val) {
-  unsigned long long int* address_as_ull = (unsigned long long int*)address;
-  float2UllUnion old, assumed, tmp;
-  old.ull = *address_as_ull;
+#if __CUDA_ARCH__ < 600
+inline __device__ void my_atomic_add(double *address, float val) {
+  unsigned long long int *address_as_ull =
+      (unsigned long long int *) address;
+  unsigned long long int old = *address_as_ull, assumed;
   do {
     assumed = old;
-    tmp = assumed;
-    // kahan summation
-    const float y = val - tmp.f.y;
-    const float t = tmp.f.x + y;
-    tmp.f.y = (t - tmp.f.x) - y;
-    tmp.f.x = t;
+    old = atomicCAS(address_as_ull, assumed,
+                    __double_as_longlong(((double)val) +
+                        __longlong_as_double(assumed)));
+  } while (assumed != old);
+}
+#else
+inline __device__ void my_atomic_add(double *address, float val) {
+  atomicAdd(address, (double) val);
+}
+#endif
 
-    old.ull = atomicCAS(address_as_ull, assumed.ull, tmp.ull);
-
-  } while (assumed.ull != old.ull);
+inline __device__ void my_atomic_add(float *address, float val) {
+  atomicAdd(address, val);
 }
 
 namespace kmeans {
@@ -188,7 +182,7 @@ void find_centroids(int q, int n, int d, int k,
   //XXX Number of blocks here is hard coded at 30
   //This should be taken care of more thoughtfully.
 
-  thrust::device_vector<float2UllUnion> correlated_centroids = thrust::device_vector<float2UllUnion>(0);
+  thrust::device_vector<double> correlated_centroids = thrust::device_vector<double>(0);
   bool running_floats = typeid(float) == typeid(T);
   if(running_floats) {
     // This is here because atomicAdd for floats is not the best to say the least
@@ -222,8 +216,8 @@ void find_centroids(int q, int n, int d, int k,
         correlated_centroids.begin(),
         correlated_centroids.end(),
         centroids.begin(),
-        [=]__device__(float2UllUnion val) {
-      return val.f.x;
+        [=]__device__(double val) {
+      return (float) val;
     }
     );
   }
