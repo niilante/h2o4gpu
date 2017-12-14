@@ -10,13 +10,13 @@ TEST(KMeansCentroids, CalculateCentroids) {
   int n = 4;
 
   // Setup data
-  thrust::host_vector<float> dataHost(n*d);
+  thrust::host_vector<double> dataHost(n*d);
   dataHost[0] = 0.0f; dataHost[1] = 0.0f; // [0,0]
   dataHost[2] = 0.0f; dataHost[3] = 1.0f; // [0,1]
   dataHost[4] = 1.0f; dataHost[5] = 1.0f; // [1,1]
   dataHost[6] = 1.0f; dataHost[7] = 0.0f; // [1,1]
 
-  thrust::device_vector<float> dataDevice(n*d);
+  thrust::device_vector<double> dataDevice(n*d);
   dataDevice = dataHost;
 
   // Setup counts
@@ -40,9 +40,9 @@ TEST(KMeansCentroids, CalculateCentroids) {
   indicesDevice = indicesHost;
 
   // Setup centroids
-  thrust::host_vector<float> centroidsHost(d*k);
+  thrust::host_vector<double> centroidsHost(d*k);
   centroidsHost[0] = 0.0f; centroidsHost[1] = 0.0f; centroidsHost[2] = 0.0f; centroidsHost[3] = 0.0f;
-  thrust::device_vector<float> centroidsDevice(d*k);
+  thrust::device_vector<double> centroidsDevice(d*k);
   centroidsDevice = centroidsHost;
 
   int n_threads_x = 64;
@@ -59,10 +59,10 @@ TEST(KMeansCentroids, CalculateCentroids) {
   // THEN
   centroidsHost = centroidsDevice;
 
-  ASSERT_FLOAT_EQ(0.0f, centroidsHost.data()[0]);
-  ASSERT_FLOAT_EQ(1.0f, centroidsHost.data()[1]);
-  ASSERT_FLOAT_EQ(2.0f, centroidsHost.data()[2]);
-  ASSERT_FLOAT_EQ(1.0f, centroidsHost.data()[3]);
+  ASSERT_DOUBLE_EQ(0.0f, centroidsHost.data()[0]);
+  ASSERT_DOUBLE_EQ(1.0f, centroidsHost.data()[1]);
+  ASSERT_DOUBLE_EQ(2.0f, centroidsHost.data()[2]);
+  ASSERT_DOUBLE_EQ(1.0f, centroidsHost.data()[3]);
 
   SUCCEED();
 
@@ -77,14 +77,14 @@ TEST(KMeansCentroids, CalculateCentroids2GPU) {
   // GIVEN
   int k = 2; int d = 2; int n = 3;
 
-  thrust::host_vector<float> dataHost(n*d);
-  thrust::device_vector<float> dataDevice(n*d);
+  thrust::host_vector<double> dataHost(n*d);
+  thrust::device_vector<double> dataDevice(n*d);
   thrust::device_vector<int> countsDevice(k);
   thrust::host_vector<int> labelsHost(n);
   thrust::device_vector<int> labelsDevice(n);
-  thrust::host_vector<float> centroidsHost(d*k);
-  thrust::device_vector<float> centroidsDevice(d*k);
-  thrust::host_vector<float> centroidsHostFirst(d*k);
+  thrust::host_vector<double> centroidsHost(d*k);
+  thrust::device_vector<double> centroidsDevice(d*k);
+  thrust::host_vector<double> centroidsHostFirst(d*k);
   thrust::host_vector<int> indicesHost(n);
   thrust::device_vector<int> indicesDevice(n);
   int n_threads_x = 64; int n_threads_y = 16;
@@ -149,7 +149,7 @@ TEST(KMeansCentroids, CalculateCentroids2GPU) {
   k = 2; d = 2; n = 6;
 
   // Setup data
-  thrust::host_vector<float> dataHost2(n*d);
+  thrust::host_vector<double> dataHost2(n*d);
   dataHost2[0] = 4.0f; dataHost2[1] = 2.0f; // [0,0]
   dataHost2[2] = 1.0f; dataHost2[3] = 0.0f; // [0,1]
   dataHost2[4] = 4.0f; dataHost2[5] = 0.0f; // [1,1]
@@ -157,7 +157,7 @@ TEST(KMeansCentroids, CalculateCentroids2GPU) {
   dataHost2[8] = 1.0f; dataHost2[9] = 4.0f; // [1,1]
   dataHost2[10] = 1.0f; dataHost2[11] = 2.0f; // [1,1]
 
-  thrust::device_vector<float> dataDevice2(n*d);
+  thrust::device_vector<double> dataDevice2(n*d);
   dataDevice2 = dataHost2;
 
   // Setup counts
@@ -176,7 +176,7 @@ TEST(KMeansCentroids, CalculateCentroids2GPU) {
   indicesDevice2 = indicesHost2;
 
   // Setup centroids
-  thrust::device_vector<float> centroidsDevice2(d*k);
+  thrust::device_vector<double> centroidsDevice2(d*k);
 
   kmeans::detail::memzero(countsDevice2);
   kmeans::detail::memzero(centroidsDevice2);
@@ -191,13 +191,13 @@ TEST(KMeansCentroids, CalculateCentroids2GPU) {
   );
 
   // THEN
-  thrust::host_vector<float> centroidsHost2(d*k);
+  thrust::host_vector<double> centroidsHost2(d*k);
   centroidsHost2 = centroidsDevice2;
 
-  ASSERT_FLOAT_EQ(centroidsHost2.data()[0], centroidsHost.data()[0]);
-  ASSERT_FLOAT_EQ(centroidsHost2.data()[1], centroidsHost.data()[1]);
-  ASSERT_FLOAT_EQ(centroidsHost2.data()[2], centroidsHost.data()[2]);
-  ASSERT_FLOAT_EQ(centroidsHost2.data()[3], centroidsHost.data()[3]);
+  ASSERT_DOUBLE_EQ(centroidsHost2.data()[0], centroidsHost.data()[0]);
+  ASSERT_DOUBLE_EQ(centroidsHost2.data()[1], centroidsHost.data()[1]);
+  ASSERT_DOUBLE_EQ(centroidsHost2.data()[2], centroidsHost.data()[2]);
+  ASSERT_DOUBLE_EQ(centroidsHost2.data()[3], centroidsHost.data()[3]);
 
   SUCCEED();
 
@@ -217,25 +217,25 @@ TEST(KMeansCentroids, RevertCentroidZeroing) {
   countsDevice = countsHost;
 
   // Setup tmp centroids (original)
-  thrust::host_vector<float> tmp_centroidsHost(d*k);
+  thrust::host_vector<double> tmp_centroidsHost(d*k);
   tmp_centroidsHost[0] = 1.0f;
   tmp_centroidsHost[1] = 1.0f;
   tmp_centroidsHost[2] = 2.0f;
   tmp_centroidsHost[3] = 2.0f;
   tmp_centroidsHost[4] = 3.0f;
   tmp_centroidsHost[5] = 3.0f;
-  thrust::device_vector<float> tmp_centroidsDevice(d*k);
+  thrust::device_vector<double> tmp_centroidsDevice(d*k);
   tmp_centroidsDevice = tmp_centroidsHost;
 
   // Setup centroids
-  thrust::host_vector<float> centroidsHost(d*k);
+  thrust::host_vector<double> centroidsHost(d*k);
   centroidsHost[0] = 5.0f;
   centroidsHost[1] = 5.0f;
   centroidsHost[2] = 0.0f;
   centroidsHost[3] = 0.0f;
   centroidsHost[4] = 4.0f;
   centroidsHost[5] = 4.0f;
-  thrust::device_vector<float> centroidsDevice(d*k);
+  thrust::device_vector<double> centroidsDevice(d*k);
   centroidsDevice = centroidsHost;
 
   // WHEN
@@ -249,12 +249,12 @@ TEST(KMeansCentroids, RevertCentroidZeroing) {
   // THEN
   centroidsHost = centroidsDevice;
 
-  ASSERT_FLOAT_EQ(5.0f, centroidsHost.data()[0]);
-  ASSERT_FLOAT_EQ(5.0f, centroidsHost.data()[1]);
-  ASSERT_FLOAT_EQ(2.0f, centroidsHost.data()[2]);
-  ASSERT_FLOAT_EQ(2.0f, centroidsHost.data()[3]);
-  ASSERT_FLOAT_EQ(4.0f, centroidsHost.data()[4]);
-  ASSERT_FLOAT_EQ(4.0f, centroidsHost.data()[5]);
+  ASSERT_DOUBLE_EQ(5.0f, centroidsHost.data()[0]);
+  ASSERT_DOUBLE_EQ(5.0f, centroidsHost.data()[1]);
+  ASSERT_DOUBLE_EQ(2.0f, centroidsHost.data()[2]);
+  ASSERT_DOUBLE_EQ(2.0f, centroidsHost.data()[3]);
+  ASSERT_DOUBLE_EQ(4.0f, centroidsHost.data()[4]);
+  ASSERT_DOUBLE_EQ(4.0f, centroidsHost.data()[5]);
 
   SUCCEED();
 }
@@ -273,13 +273,13 @@ TEST(KMeansCentroids, CentroidsScaling) {
   countsDevice = countsHost;
 
   // Setup centroids
-  thrust::host_vector<float> centroidsHost(d*k);
+  thrust::host_vector<double> centroidsHost(d*k);
   centroidsHost[0] = 1.0f;
   centroidsHost[1] = 2.0f;
   centroidsHost[2] = 3.0f;
   centroidsHost[3] = 4.0f;
 
-  thrust::device_vector<float> centroidsDevice(d*k);
+  thrust::device_vector<double> centroidsDevice(d*k);
   centroidsDevice = centroidsHost;
 
   // WHEN
@@ -292,10 +292,10 @@ TEST(KMeansCentroids, CentroidsScaling) {
   // THEN
   centroidsHost = centroidsDevice;
 
-  ASSERT_FLOAT_EQ(0.25f, centroidsHost.data()[0]);
-  ASSERT_FLOAT_EQ(0.5f, centroidsHost.data()[1]);
-  ASSERT_FLOAT_EQ(1.5f, centroidsHost.data()[2]);
-  ASSERT_FLOAT_EQ(2.0f, centroidsHost.data()[3]);
+  ASSERT_DOUBLE_EQ(0.25f, centroidsHost.data()[0]);
+  ASSERT_DOUBLE_EQ(0.5f, centroidsHost.data()[1]);
+  ASSERT_DOUBLE_EQ(1.5f, centroidsHost.data()[2]);
+  ASSERT_DOUBLE_EQ(2.0f, centroidsHost.data()[3]);
 
   SUCCEED();
 }

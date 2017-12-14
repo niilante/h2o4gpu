@@ -114,7 +114,7 @@ int kmeans(
     safe_cuda(cudaSetDevice(dList[0]));
     d_old_centroids = *centroids[dList[0]];
 
-    #pragma omp parallel for
+#pragma omp parallel for
     for (int q = 0; q < n_gpu; q++) {
       safe_cuda(cudaSetDevice(dList[q]));
 
@@ -200,11 +200,13 @@ int kmeans(
           (*centroids[0]).begin(),
           (T) 0.0,
           thrust::plus<T>(),
-          [=]__device__(T left, T right){
-            T diff = left - right;
-            return diff * diff;
-          }
+      [=]__device__(T left, T right){
+        T diff = left - right;
+        return diff * diff;
+      }
       );
+
+      log_verbose(verbose, "Total moved distance %g", squared_norm);
 
       if (squared_norm < threshold) {
         if (verbose) { std::cout << "Threshold triggered. Terminating early." << std::endl; }

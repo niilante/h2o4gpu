@@ -7,6 +7,7 @@
 #include <thrust/sort.h>
 #include "kmeans_labels.h"
 
+#if __CUDA_ARCH__ < 600
 inline __device__ double my_atomic_add(double *address, double val) {
   unsigned long long int *address_as_ull =
       (unsigned long long int *) address;
@@ -19,33 +20,61 @@ inline __device__ double my_atomic_add(double *address, double val) {
   } while (assumed != old);
   return __longlong_as_double(old);
 }
+#else
+inline __device__ double my_atomic_add(double *address, double val) {
+  return (atomicAdd(address, val));
+}
+#endif
+
+union float2UllUnion {
+  float2 f;
+  unsigned long long int ull;
+};
 
 inline __device__ float my_atomic_add(float *address, float val) {
   return (atomicAdd(address, val));
 }
 
+inline __device__ void my_atomic_add(float2UllUnion *address, float val) {
+  unsigned long long int* address_as_ull = (unsigned long long int*)address;
+  float2UllUnion old, assumed, tmp;
+  old.ull = *address_as_ull;
+  do {
+    assumed = old;
+    tmp = assumed;
+    // kahan summation
+    const float y = val - tmp.f.y;
+    const float t = tmp.f.x + y;
+    tmp.f.y = (t - tmp.f.x) - y;
+    tmp.f.x = t;
+
+    old.ull = atomicCAS(address_as_ull, assumed.ull, tmp.ull);
+
+  } while (assumed.ull != old.ull);
+}
+
 namespace kmeans {
 namespace detail {
 
-template<typename T>
+template<typename ACC, typename C>
 __device__ __forceinline__
 void update_centroid(int label, int dimension, int d,
-                     T accumulator, T *centroids,
+                     ACC accumulator, C *centroids,
                      int count, int *counts) {
   int index = label * d + dimension;
-  T *target = centroids + index;
+  C *target = centroids + index;
   my_atomic_add(target, accumulator);
   if (dimension == 0) {
     atomicAdd(counts + label, count);
   }
 }
 
-template<typename T>
+template<typename T, typename C>
 __global__ void calculate_centroids(int n, int d, int k,
                                     T *data,
                                     int *ordered_labels,
                                     int *ordered_indices,
-                                    T *centroids,
+                                    C *centroids,
                                     int *counts) {
   int in_flight = blockDim.y * gridDim.y;
   int labels_per_row = (n - 1) / in_flight + 1;
@@ -84,9 +113,9 @@ __global__ void calculate_centroids(int n, int d, int k,
 
 template<typename T>
 __global__ void revert_zeroed_centroids(int d, int k,
-                                    T *tmp_centroids,
-                                    T *centroids,
-                                    int *counts) {
+                                        T *tmp_centroids,
+                                        T *centroids,
+                                        int *counts) {
   int global_id_x = threadIdx.x + blockIdx.x * blockDim.x;
   int global_id_y = threadIdx.y + blockIdx.y * blockDim.y;
   if ((global_id_x < d) && (global_id_y < k)) {
@@ -108,8 +137,7 @@ __global__ void scale_centroids(int d, int k, int *counts, T *centroids) {
     if (count < 1) {
       count = 1;
     }
-    T scale = 1.0 / T(count);
-    centroids[global_id_x + d * global_id_y] *= scale;
+    centroids[global_id_x + d * global_id_y] /= T(count);
   }
 }
 
@@ -159,18 +187,50 @@ void find_centroids(int q, int n, int d, int k,
   int n_threads_y = 16; // TODO FIXME
   //XXX Number of blocks here is hard coded at 30
   //This should be taken care of more thoughtfully.
-  calculate_centroids << < dim3(1, 30), dim3(n_threads_x, n_threads_y), // TODO FIXME
-      0, cuda_stream[dev_num] >> >
-      (n, d, k,
-          thrust::raw_pointer_cast(data.data()),
-          thrust::raw_pointer_cast(labels.data()),
-          thrust::raw_pointer_cast(indices.data()),
-          thrust::raw_pointer_cast(centroids.data()),
-          thrust::raw_pointer_cast(counts.data()));
 
-  #if(CHECK)
+  thrust::device_vector<float2UllUnion> correlated_centroids = thrust::device_vector<float2UllUnion>(0);
+  bool running_floats = typeid(float) == typeid(T);
+  if(running_floats) {
+    // This is here because atomicAdd for floats is not the best to say the least
+    // For example on the Homesite dataset it's extremely unstable
+    // For the same parameters (random state and date) it can run anywhere between 10 and 70 iterations
+    // Kahan summation helps with this but the memory footprint doubles for the centroid matrix b/c we need to store the value and a correctness factor
+    // TODO: In the end we could just hardcode the type of centroids matrix to `double` and be done with it but this change will touch quite a bit of code
+    // TODO: so can be done at a later time.
+    correlated_centroids.resize(centroids.size());
+    calculate_centroids << < dim3(1, 30), dim3(n_threads_x, n_threads_y), // TODO FIXME
+        0, cuda_stream[dev_num] >> >
+        (n, d, k,
+            thrust::raw_pointer_cast(data.data()),
+            thrust::raw_pointer_cast(labels.data()),
+            thrust::raw_pointer_cast(indices.data()),
+            thrust::raw_pointer_cast(correlated_centroids.data()),
+            thrust::raw_pointer_cast(counts.data()));
+  } else {
+    calculate_centroids << < dim3(1, 30), dim3(n_threads_x, n_threads_y), // TODO FIXME
+        0, cuda_stream[dev_num] >> >
+        (n, d, k,
+            thrust::raw_pointer_cast(data.data()),
+            thrust::raw_pointer_cast(labels.data()),
+            thrust::raw_pointer_cast(indices.data()),
+            thrust::raw_pointer_cast(centroids.data()),
+            thrust::raw_pointer_cast(counts.data()));
+  }
+
+  if(running_floats) {
+    thrust::transform(
+        correlated_centroids.begin(),
+        correlated_centroids.end(),
+        centroids.begin(),
+        [=]__device__(float2UllUnion val) {
+      return val.f.x;
+    }
+    );
+  }
+
+#if(CHECK)
   gpuErrchk(cudaGetLastError());
-  #endif
+#endif
 
   // Scaling should take place on the GPU if n_gpus=1 so we don't
   // move centroids and counts between host and device all the time for nothing
@@ -184,9 +244,9 @@ void find_centroids(int q, int n, int d, int k,
             thrust::raw_pointer_cast(centroids.data()),
             thrust::raw_pointer_cast(counts.data()));
 
-    #if(CHECK)
+#if(CHECK)
     gpuErrchk(cudaGetLastError());
-    #endif
+#endif
 
     //Averages the centroids
     scale_centroids << < dim3((d - 1) / 32 + 1, (k - 1) / 32 + 1), dim3(32, 32), // TODO FIXME
